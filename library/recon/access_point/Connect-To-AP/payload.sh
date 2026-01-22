@@ -6,11 +6,32 @@
 
 # Configuration
 REMEMBERED_APS="/mmc/root/.wifi_remembered_aps"
-IP_RETRY_COUNT=15
+IP_RETRY_COUNT=20
 IP_RETRY_DELAY=5
 
 # MetaPayload is optional, but if installed, you will have the option to update the global TARGET_SUBNET on connection
 METAPAYLOAD_DIR="/root/payloads/user/metapayload" 
+
+#=== Log previous AP details ===
+LOG "wlan0cli currently configured for:"
+CURRENT_SSID=$(uci get wireless.wlan0cli.ssid 2>/dev/null)
+if [ -n "$CURRENT_SSID" ]; then
+    LOG "SSID: $CURRENT_SSID"
+    CURRENT_ENC=$(uci get wireless.wlan0cli.encryption 2>/dev/null)
+    LOG "Encryption: $CURRENT_ENC"
+    CURRENT_BSSID=$(uci get wireless.wlan0cli.bssid 2>/dev/null)
+    LOG "BSSID: $CURRENT_BSSID"
+    ping -c 1 1.1.1.1 > /dev/null 2>&1
+    if [ $? -eq 0 ]; then
+        LOG green "Internet reachable\n"
+    else
+        LOG yellow "Internet NOT reachable\n"
+    fi
+else
+    LOG "No current configuration found."
+fi
+LOG "\n"
+LOG "=== Newly selected AP Details ==="
 
 # === Handle Hidden SSID ===
 if [ "$_RECON_SELECTED_AP_HIDDEN" = "true" ] || [ "$_RECON_SELECTED_AP_HIDDEN" = "1" ] || \
@@ -99,8 +120,9 @@ else
 fi
 
 # === Clear previous connection ===
-LOG "Resetting wlan0cli interface...\n"
+LOG "\n=== Resetting wlan0cli interface ===\n"
 WIFI_CLEAR wlan0cli
+sleep 10
 
 # === Connect to network ===
 LOG blue "=== Connecting to $TARGET_SSID ===\n"
@@ -108,10 +130,6 @@ LOG blue "=== Connecting to $TARGET_SSID ===\n"
 
 if WIFI_CONNECT wlan0cli "$TARGET_SSID" "$NEW_ENC" "$WIFI_PASSWORD" "$_RECON_SELECTED_AP_BSSID"; then
     LOG green "=== Successfully connected to $TARGET_SSID ===\n"
-    
-    # Give interface time to reset and obtain new IP
-    LOG "Waiting for interface to stabilize...\n"
-    sleep 5
     
     # === Save/Update password if different ===
     if [ "$NEW_ENC" != "open" ] && [ "$WIFI_PASSWORD" != "$SAVED_PASSWORD" ]; then
@@ -140,32 +158,35 @@ if WIFI_CONNECT wlan0cli "$TARGET_SSID" "$NEW_ENC" "$WIFI_PASSWORD" "$_RECON_SEL
                 ;;
         esac
     fi
+
+    # Give interface time to reset and obtain new IP
+    LOG "Waiting for interface to stabilize...\n"
+    sleep 5
     
     # Wait for IP address assignment with retry
     LOG "Waiting for IP address...\n"
     IP_ADDR=""
 
     wait_msgs=(
+        "...\n"
         "Still waiting for IP...\n"
         "...\n"
         "This part can take a while...\n"
         "...\n"
         "Come on DHCP, do your thing...\n"
         "...\n"
-        "Wait...is it working?"
-        "..."
-        "Okay now this is getting awkward..."
-        "..."
-        "Umm...how about a joke?"
+        "Checking again...\n"
+        "...\n"
+        "Umm...how about a joke?\n"
         "A SQL query walks into a bar..."
-        "walks up to two tables and asks: 'Can I join you?'"
-        "..."
-        "Sorry, that was bad."
-        "..."
-        "Still no IP..."
-        "..."
-        "Almost ready to give up at this point..."
-        "Still no IP...I'm done..."
+        "walks up to two tables and asks: 'Can I join you?'\n"
+        "...\n"
+        "Sorry, that was bad.\n"
+        "...\n"
+        "Still no IP though...\n"
+        "...\n"
+        "Almost ready to give up at this point...\n"
+        "Still no IP...I'm done...\n"
     )
 
     for i in $(seq 1 $IP_RETRY_COUNT); do
@@ -182,7 +203,19 @@ if WIFI_CONNECT wlan0cli "$TARGET_SSID" "$NEW_ENC" "$WIFI_PASSWORD" "$_RECON_SEL
     # Show connection info
     if [ -n "$IP_ADDR" ]; then
         
-        ALERT "Connected! IP: $IP_ADDR"
+        # Quick test to see if internet is reachable
+        LOG "Testing internet connectivity..."
+        ping -c 1 1.1.1.1 > /dev/null 2>&1
+        if [ $? -eq 0 ]; then
+            LOG green "Internet is reachable!"
+            ALERT "Connected to $TARGET_SSID!\nIP: $IP_ADDR\nInternet: Reachable"
+        else
+            LOG yellow "Warning: Internet is NOT reachable"
+            ALERT "Connected to $TARGET_SSID!\nIP: $IP_ADDR\nInternet: NOT Reachable"
+        fi
+
+        
+
         # === Update MetaPayload TARGET_SUBNET if MetaPayload is installed ===
         if [ -f "$METAPAYLOAD_DIR/.env" ]; then
             LOG "MetaPayload detected"
